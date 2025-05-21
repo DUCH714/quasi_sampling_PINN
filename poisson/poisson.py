@@ -18,30 +18,30 @@ from data import get_data
 from networks import get_network
 from utils import normalization
 
-parser = argparse.ArgumentParser(description="SincKAN")
+parser = argparse.ArgumentParser(description="quasi_random")
 parser.add_argument("--mode", type=str, default='train', help="mode of the network, "
                                                               "train: start training, eval: evaluation")
 parser.add_argument("--datatype", type=str, default='poisson', help="type of data")
-parser.add_argument("--ntest", type=int, default=1000, help="the number of testing dataset")
+parser.add_argument("--ntest", type=int, default=10000, help="the number of testing dataset")
 parser.add_argument("--n_interior", type=int, default=2000,
                     help="the number of interior training dataset for each epochs")
-parser.add_argument("--n_boundary", type=int, default=100,
+parser.add_argument("--n_boundary", type=int, default=1000,
                     help="the number of boundary training dataset for each epochs")
 parser.add_argument("--dim", type=int, default=100, help="dim of the problem")
-parser.add_argument("--ite", type=int, default=100, help="the number of iteration")
+parser.add_argument("--ite", type=int, default=20, help="the number of iteration")
 parser.add_argument("--epochs", type=int, default=10000, help="the number of epochs")
-parser.add_argument("--lr", type=float, default=1e-2, help="learning rate")
+parser.add_argument("--lr", type=float, default=1e-3, help="learning rate")
 parser.add_argument("--seed", type=int, default=0, help="the name")
 parser.add_argument("--activation", type=str, default='tanh', help='the activation function')
 parser.add_argument("--noise", type=int, default=0, help="add noise or not, 0: no noise, 1: add noise")
 parser.add_argument("--normalization", type=int, default=0, help="add normalization or not, 0: no normalization, "
                                                                  "1: add normalization")
-parser.add_argument("--interval", type=str, default="0.0,1.0", help='boundary of the interval')
-parser.add_argument("--network", type=str, default="sinckan", help="type of network")
+parser.add_argument("--interval", type=str, default="-1.0,1.0", help='boundary of the interval')
+parser.add_argument("--network", type=str, default="mlp", help="type of network")
 parser.add_argument("--kanshape", type=str, default="8", help='shape of the network (KAN)')
 parser.add_argument("--degree", type=int, default=8, help='degree of polynomials')
-parser.add_argument("--features", type=int, default=100, help='width of the network')
-parser.add_argument("--layers", type=int, default=10, help='depth of the network')
+parser.add_argument("--features", type=int, default=50, help='width of the network')
+parser.add_argument("--layers", type=int, default=4, help='depth of the network')
 parser.add_argument("--len_h", type=int, default=1, help='lenth of k for sinckan')
 parser.add_argument("--init_h", type=float, default=2.0, help='initial value of h')
 parser.add_argument("--decay", type=str, default='inverse', help='decay type for h')
@@ -49,7 +49,7 @@ parser.add_argument("--skip", type=int, default=1, help='1: use skip connection 
 parser.add_argument("--embed_feature", type=int, default=10, help='embedding features of the modified MLP')
 parser.add_argument("--alpha", type=float, default=10, help='parameters for the width of poission')
 parser.add_argument("--initialization", type=str, default=None, help='the type of initialization of SincKAN')
-parser.add_argument("--device", type=int, default=3, help="cuda number")
+parser.add_argument("--device", type=int, default=2, help="cuda number")
 args = parser.parse_args()
 
 os.environ['CUDA_VISIBLE_DEVICES'] = str(args.device)
@@ -63,11 +63,10 @@ def right_hand_side(x, alpha, dim):
 class interior_points():
     def __init__(self, dim, interval=(-1, 1)):
         self.dim = dim
-        self.points = jnp.linspace(interval[0], interval[1], 1000)[1:-1]
+        self.interval = interval
 
     def sample(self, num, key):
-        keys = random.split(key, self.dim)
-        points = jnp.concatenate([random.choice(key, self.points, shape=(num, 1), replace=True) for key in keys], -1)
+        points = random.uniform(key,shape=(num,self.dim),minval=self.interval[0],maxval=self.interval[1])
         return points
 
 
@@ -83,8 +82,8 @@ class boundary_points():
         keys = random.split(key, self.dim + 1)
         x = jnp.concatenate([random.choice(key, self.points, shape=(num, 1), replace=True) for key in keys[:-1]], -1)
         keys = random.split(keys[-1], 2)
-        boundary = jax.random.randint(keys[0], num, 0, 2) * (self.interval[1] - self.interval[0]) + self.interval[0]
-        idx_bd = jax.random.randint(keys[1], num, 0, self.dim)
+        boundary = jax.random.randint(keys[0], (num,), 0, 2) * (self.interval[1] - self.interval[0]) + self.interval[0]
+        idx_bd = jax.random.randint(keys[1], (num,), 0, self.dim)
         vset = lambda p, idx, value: p.at[idx].set(value)
         x = vmap(vset, (0, 0, 0))(x, idx_bd, boundary)
         y = self.generate_data(x, self.alpha)
