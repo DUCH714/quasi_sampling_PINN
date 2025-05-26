@@ -47,7 +47,7 @@ parser.add_argument("--init_h", type=float, default=2.0, help='initial value of 
 parser.add_argument("--decay", type=str, default='inverse', help='decay type for h')
 parser.add_argument("--skip", type=int, default=1, help='1: use skip connection for sinckan')
 parser.add_argument("--embed_feature", type=int, default=10, help='embedding features of the modified MLP')
-parser.add_argument("--alpha", type=float, default=10, help='parameters for the width of poission')
+parser.add_argument("--alpha", type=float, default=1, help='parameters for the width of poission')
 parser.add_argument("--initialization", type=str, default=None, help='the type of initialization of SincKAN')
 parser.add_argument("--device", type=int, default=2, help="cuda number")
 args = parser.parse_args()
@@ -57,8 +57,8 @@ os.environ['CUDA_VISIBLE_DEVICES'] = str(args.device)
 
 def solution_jax(x, alpha, c):
     A = jnp.mean(jnp.exp(-c * x[:-2] * x[1:-1] * x[2:]))
-    B = -alpha * jnp.sum(x ** 2)
-    return A * jnp.exp(B)
+    B = 1 - jnp.mean(x ** 2)
+    return A*B
 
 
 def right_hand_side(x, alpha, c, dim):

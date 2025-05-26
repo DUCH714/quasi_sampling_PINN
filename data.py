@@ -32,8 +32,8 @@ def allen_cahn(x, c):
 
 def sine_gordon(x, alpha, c):
     A = np.mean(np.exp(-c * x[:, :-2] * x[:, 1:-1] * x[:, 2:]), axis=1)
-    B = -alpha * np.sum(x ** 2, axis=1)
-    return (A * np.exp(B))[:, None]
+    B = 1 - np.mean(x ** 2, axis=1)
+    return (A * B)[:, None]
 
 
 def poisson_sin(x, dim):

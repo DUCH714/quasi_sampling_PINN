@@ -199,10 +199,7 @@ def train(key):
             Z_pool = jnp.concatenate([Z_pool,
                                     vmap(right_hand_side, (0, None, None))(Z_pool, alpha, dim,
                                                                                  ).reshape(-1, 1)],-1)
-            try:
-                Z_ref = random.choice(keys[1], Z_pool, shape=(N_interior,), replace=False)
-            except:
-                Z_ref = random.choice(keys[1], Z_pool, shape=(2000,), replace=False)
+            Z_ref = random.choice(keys[1], Z_pool, shape=(np.min([N_interior,2000]),), replace=False)
             K_train = get_ntk_matrix(model, Z_ref,Z_ref, frozen_para)
             K_test = get_ntk_matrix(model, Z_ref, Z_pool, frozen_para)
             Z_pool_res = compute_residual(model, Z_pool, frozen_para)

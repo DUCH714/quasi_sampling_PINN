@@ -57,8 +57,8 @@ os.environ['CUDA_VISIBLE_DEVICES'] = str(args.device)
 
 def solution_jax(x, alpha, c):
     A = jnp.mean(jnp.exp(-c * x[:-2] * x[1:-1] * x[2:]))
-    B = -alpha * jnp.sum(x ** 2)
-    return A * jnp.exp(B)
+    B = 1 - jnp.mean(x ** 2)
+    return A*B
 
 
 def right_hand_side(x, alpha, c, dim):
