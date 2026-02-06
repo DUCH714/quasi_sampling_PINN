@@ -166,7 +166,7 @@ def train(key):
     # Generate sampled data
     lowb, upb = float(interval[0]), float(interval[1])
     interval = [lowb, upb]
-    x_b_set = boundary_points(dim=dim, generate_data=generate_data, interval=interval, c=vec_c)
+    x_b_set = boundary_points(dim=dim, generate_data=lambda x: generate_data(x,vec_c), interval=interval)
     x_in_set = interior_points(dim=dim, interval=interval)
     x_test = jnp.concatenate([x_in_set.sample(num=int(ntest * 0.8), key=keys[0]),
                               x_b_set.sample(num=int(ntest * 0.2), key=keys[1])[0]], 0)

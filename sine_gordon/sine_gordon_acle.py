@@ -27,7 +27,7 @@ import argparse
 import jax
 from data import get_data
 from networks import get_network
-from utils import normalization
+from utils import normalization, interior_points, boundary_points
 import acle
 
 parser = argparse.ArgumentParser(description="quasi_random")
@@ -79,38 +79,6 @@ def right_hand_side(x, alpha, c, dim):
         jnp.stack([grad(grad(u, argnums=i + 3), argnums=i + 3)(solution_jax, alpha, c, *x) for i in range(dim)])) \
         + jnp.sin(u(solution_jax, alpha, c, *x))
     return f
-
-
-class interior_points():
-    def __init__(self, dim, interval=(-1, 1)):
-        self.dim = dim
-        self.interval = interval
-
-    def sample(self, num, key):
-        points = random.uniform(key,shape=(num,self.dim),minval=self.interval[0],maxval=self.interval[1])
-        return points
-
-
-class boundary_points():
-    def __init__(self, dim, generate_data, interval=(-1, 1), alpha=100, c=0):
-        self.dim = dim
-        self.points = jnp.linspace(interval[0], interval[1], 100)
-        self.interval = interval
-        self.generate_data = generate_data
-        self.alpha = alpha
-        self.c = c
-
-    def sample(self, num, key):
-        keys = random.split(key, self.dim + 1)
-        x = jnp.concatenate([random.choice(key, self.points, shape=(num, 1), replace=True) for key in keys[:-1]], -1)
-        keys = random.split(keys[-1], 2)
-        boundary = jax.random.randint(keys[0], (num,), 0, 2) * (self.interval[1] - self.interval[0]) + self.interval[0]
-        idx_bd = jax.random.randint(keys[1], (num,), 0, self.dim)
-        vset = lambda p, idx, value: p.at[idx].set(value)
-        x = vmap(vset, (0, 0, 0))(x, idx_bd, boundary)
-        y = self.generate_data(x, self.alpha, self.c)
-        return x, y
-
 
 def net(model, frozen_para, *x):
     return model(jnp.stack([*x]), frozen_para)[0]
@@ -191,11 +159,10 @@ def train(key):
     # Generate sampled data
     lowb, upb = float(interval[0]), float(interval[1])
     interval = [lowb, upb]
-    x_b_set = boundary_points(dim=dim, generate_data=generate_data, interval=interval, alpha=alpha, c=vec_c)
+    x_b_set = boundary_points(dim=dim, generate_data=lambda x: generate_data(x,alpha,vec_c), interval=interval)
     x_in_set = interior_points(dim=dim, interval=interval)
-    x_test = jnp.concatenate([x_in_set.sample(num=int(ntest * 0.8), key=keys[0]),
-                              x_b_set.sample(num=int(ntest * 0.2), key=keys[1])[0]], 0)
 
+    x_test = x_in_set.sample(num=ntest, key=keys[0])
     y_test = generate_data(x_test, alpha=alpha, c=vec_c)
     normalizer = normalization(interval, dim, args.normalization)
     input_dim = dim
@@ -286,11 +253,9 @@ def eval(key):
     interval = args.interval.split(',')
     lowb, upb = float(interval[0]), float(interval[1])
     interval = [lowb, upb]
-    x_b_set = boundary_points(dim=dim, generate_data=generate_data, interval=interval, alpha=alpha, c=vec_c)
     x_in_set = interior_points(dim=dim, interval=interval)
-    x_test = jnp.concatenate([x_in_set.sample(num=int(ntest * 0.8), key=keys[0]),
-                              x_b_set.sample(num=int(ntest * 0.2), key=keys[1])[0]], 0)
 
+    x_test = x_in_set.sample(num=ntest, key=keys[0])
     y_test = generate_data(x_test, alpha=alpha, c=vec_c)
     normalizer = normalization(x_test, args.normalization)
 

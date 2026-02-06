@@ -27,7 +27,7 @@ import argparse
 import jax
 from data import get_data
 from networks import get_network
-from utils import normalization
+from utils import normalization, interior_points, boundary_points
 
 parser = argparse.ArgumentParser(description="quasi_random")
 parser.add_argument("--mode", type=str, default='train', help="mode of the network, "
@@ -157,7 +157,7 @@ def train(key):
     # Generate sampled data
     lowb, upb = float(interval[0]), float(interval[1])
     interval = [lowb, upb]
-    x_b_set = boundary_points(dim=dim, generate_data=generate_data, interval=interval, alpha=alpha)
+    x_b_set = boundary_points(dim=dim, generate_data=lambda x: generate_data(x,alpha), interval=interval)
     x_in_set = interior_points(dim=dim, interval=interval)
     x_test = jnp.concatenate([x_in_set.sample(num=int(ntest * 0.8), key=keys[0]),
                               x_b_set.sample(num=int(ntest * 0.2), key=keys[1])[0]], 0)

@@ -169,7 +169,7 @@ def train(key):
     # Generate sampled data
     lowb, upb = float(interval[0]), float(interval[1])
     interval = [lowb, upb]
-    x_b_set = boundary_points(dim=dim, generate_data=generate_data, interval=interval, c=vec_c)
+    x_b_set = boundary_points(dim=dim, generate_data=lambda x: generate_data(x,vec_c), interval=interval)
     x_in_set = interior_points(dim=dim, interval=interval)
     samples = sampler.random(args.n_train)
     x_train_set = jnp.array(qmc.scale(samples, interval[0], interval[1]))
