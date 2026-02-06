@@ -36,7 +36,7 @@ def allen_cahn(x, c):
     return (A*B)[:,None]
 
 
-def sine_gordon(x, alpha, c):
+def sine_gordon(x, c):
     '''
     Sine-Gordon equation: y = (sum_i (exp(-c * x_i * x_{i+1} * x_{i+2}))/dim) * (1 - sum_i x_i^2/dim)
     '''

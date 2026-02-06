@@ -63,25 +63,24 @@ parser.add_argument("--decay", type=str, default='inverse', help='decay type for
 parser.add_argument("--sampling_mode", type=str, default='halton', help='decay type for h')
 parser.add_argument("--skip", type=int, default=1, help='1: use skip connection for sinckan')
 parser.add_argument("--embed_feature", type=int, default=10, help='embedding features of the modified MLP')
-parser.add_argument("--alpha", type=float, default=10, help='parameters for the width of poission')
 parser.add_argument("--initialization", type=str, default=None, help='the type of initialization of SincKAN')
 parser.add_argument("--device", type=int, default=2, help="cuda number")
 args = parser.parse_args()
 
 os.environ['CUDA_VISIBLE_DEVICES'] = str(args.device)
-os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'true'
+# os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'true'
 
-def solution_jax(x, alpha, c):
+def solution_jax(x, c):
     A = jnp.mean(jnp.exp(-c * x[:-2] * x[1:-1] * x[2:]))
     B = 1 - jnp.mean(x ** 2)
     return A*B
 
 
-def right_hand_side(x, alpha, c, dim):
-    u = lambda model, alpha, c, *x: model(jnp.stack([*x]), alpha, c)
+def right_hand_side(x, c, dim):
+    u = lambda model, c, *x: model(jnp.stack([*x]), c)
     f = jnp.sum(
-        jnp.stack([grad(grad(u, argnums=i + 3), argnums=i + 3)(solution_jax, alpha, c, *x) for i in range(dim)])) \
-        + jnp.sin(u(solution_jax, alpha, c, *x))
+        jnp.stack([grad(grad(u, argnums=i + 2), argnums=i + 2)(solution_jax, c, *x) for i in range(dim)])) \
+        + jnp.sin(u(solution_jax, c, *x))
     return f
 
 def net(model, frozen_para, *x):
@@ -128,7 +127,6 @@ def train(key):
     # Get hyterparameters
     interval = args.interval.split(',')
     dim = args.dim
-    alpha = args.alpha / dim
     vec_c = abs(np.random.normal(0, 1, (dim - 2,)))
     vec_c = vec_c
     ntest = args.ntest
@@ -142,15 +140,13 @@ def train(key):
     # Generate sampled data
     lowb, upb = float(interval[0]), float(interval[1])
     interval = [lowb, upb]
-    x_b_set = boundary_points(dim=dim, generate_data=lambda x: generate_data(x,alpha,vec_c), interval=interval)
+    x_b_set = boundary_points(dim=dim, generate_data=lambda x: generate_data(x,vec_c), interval=interval)
     x_in_set = interior_points(dim=dim, interval=interval)
     samples = sampler.random(args.n_train)
     x_train_set = jnp.array(qmc.scale(samples, interval[0], interval[1]))
 
-    x_test = jnp.concatenate([x_in_set.sample(num=int(ntest * 0.8), key=keys[0]),
-                              x_b_set.sample(num=int(ntest * 0.2), key=keys[1])[0]], 0)
-
-    y_test = generate_data(x_test, alpha=alpha, c=vec_c)
+    x_test = x_in_set.sample(num=ntest, key=keys[0])
+    y_test = generate_data(x_test, c=vec_c)
     normalizer = normalization(interval, dim, args.normalization)
     input_dim = dim
     output_dim = 1
@@ -176,7 +172,7 @@ def train(key):
             keys = random.split(keys[-1], 3)
             input_points = random.choice(keys[0], x_train_set, shape=(N_interior,), replace=False)
             ob_x = jnp.concatenate([input_points,
-                                    vmap(right_hand_side, (0, None, None, None))(input_points, alpha, vec_c, dim,
+                                    vmap(right_hand_side, (0, None, None))(input_points, vec_c, dim,
                                                                                  ).reshape(-1, 1)],
                                    -1)
             x_b, y_b = x_b_set.sample(N_b, keys[1])
@@ -208,9 +204,9 @@ def train(key):
     print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e},min:{errors.min():.2e}')
 
     # save model and results
-    path = f'./results/sine_gordon/quasi_{args.sampling_mode}_{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.eqx'
+    path = f'./results/sine_gordon/quasi_{args.sampling_mode}_{args.datatype}_{args.network}_{args.seed}_{args.dim}.eqx'
     eqx.tree_serialise_leaves(path, model)
-    path = f'./results/sine_gordon/quasi_{args.sampling_mode}_{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.npz'
+    path = f'./results/sine_gordon/quasi_{args.sampling_mode}_{args.datatype}_{args.network}_{args.seed}_{args.dim}.npz'
     np.savez(path, loss=history, avg_time=avg_time, y_pred=y_pred, y_test=y_test, x_test=x_test, errors=errors)
 
     # print the parameters
@@ -218,13 +214,13 @@ def train(key):
     print(f'total parameters: {param_count}')
 
     # write the reuslts on csv file
-    header = "datatype, network, seed, alpha, dim, final_loss_mean, training_time, total_ite,total_param, fine_mse, fine_relative"
+    header = "datatype, network, seed, dim, final_loss_mean, training_time, total_ite,total_param, fine_mse, fine_relative"
     save_here = "results.csv"
     if not os.path.isfile(save_here):
         with open(save_here, "w") as f:
             f.write(header)
 
-    res = f"\n{args.datatype},{args.network},{args.seed},{args.alpha},{args.dim},{history[-1]},{np.sum(np.array(T))},{param_count},{ite * N_epochs},{mse_error},{relative_error}"
+    res = f"\n{args.datatype},{args.network},{args.seed},{args.dim},{history[-1]},{np.sum(np.array(T))},{param_count},{ite * N_epochs},{mse_error},{relative_error}"
     with open(save_here, "a") as f:
         f.write(res)
 
@@ -232,16 +228,18 @@ def train(key):
 def eval(key):
     # Generate sampled data
     dim = args.dim
+    vec_c = abs(np.random.normal(0, 1, (dim - 2,)))
+    ntest = args.ntest
+    keys = random.split(key, 3)
     interval = args.interval.split(',')
     lowb, upb = float(interval[0]), float(interval[1])
     interval = [lowb, upb]
-    x_b_set = boundary_points(dim=dim, generate_data=lambda x: generate_data(x,alpha,vec_c), interval=interval)
     x_in_set = interior_points(dim=dim, interval=interval)
-    x_test = jnp.concatenate([x_in_set.sample(num=int(ntest * 0.8), key=keys[0]),
-                              x_b_set.sample(num=int(ntest * 0.2), key=keys[1])[0]], 0)
+    generate_data = get_data(args.datatype)
 
-    y_test = generate_data(x_test, alpha=alpha, c=vec_c)
-    normalizer = normalization(x_test, args.normalization)
+    x_test = x_in_set.sample(num=ntest, key=keys[0])
+    y_test = generate_data(x_test, c=vec_c)
+    normalizer = normalization(interval, dim, args.normalization)
 
     input_dim = dim
     output_dim = 1
@@ -249,7 +247,7 @@ def eval(key):
     # Choose the model
     model = get_network(args, input_dim, output_dim, interval, normalizer, keys)
     frozen_para = model.get_frozen_para()
-    path = f'{args.datatype}_{args.network}_{args.seed}_{args.alpha}.eqx'
+    path = f'{args.datatype}_{args.network}_{args.seed}.eqx'
     model = eqx.tree_deserialise_leaves(path, model)
 
     y_pred = vmap(net, (None, 0, None))(model, x_test[:, 0], frozen_para)

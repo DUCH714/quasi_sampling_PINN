@@ -70,37 +70,6 @@ def right_hand_side(x, alpha, dim):
     f = 2 * alpha * jnp.exp(-alpha * jnp.sum(x ** 2)) * (2 * alpha * jnp.sum(x ** 2) - dim)
     return f
 
-
-class interior_points():
-    def __init__(self, dim, interval=(-1, 1)):
-        self.dim = dim
-        self.interval = interval
-
-    def sample(self, num, key):
-        points = random.uniform(key,shape=(num,self.dim),minval=self.interval[0],maxval=self.interval[1])
-        return points
-
-
-class boundary_points():
-    def __init__(self, dim, generate_data, interval=(-1, 1), alpha=100):
-        self.dim = dim
-        self.points = jnp.linspace(interval[0], interval[1], 100)
-        self.interval = interval
-        self.generate_data = generate_data
-        self.alpha = alpha
-
-    def sample(self, num, key):
-        keys = random.split(key, self.dim + 1)
-        x = jnp.concatenate([random.choice(key, self.points, shape=(num, 1), replace=True) for key in keys[:-1]], -1)
-        keys = random.split(keys[-1], 2)
-        boundary = jax.random.randint(keys[0], (num,), 0, 2) * (self.interval[1] - self.interval[0]) + self.interval[0]
-        idx_bd = jax.random.randint(keys[1], (num,), 0, self.dim)
-        vset = lambda p, idx, value: p.at[idx].set(value)
-        x = vmap(vset, (0, 0, 0))(x, idx_bd, boundary)
-        y = self.generate_data(x, self.alpha)
-        return x, y
-
-
 def net(model, frozen_para, *x):
     return model(jnp.stack([*x]), frozen_para)[0]
 
@@ -244,14 +213,21 @@ def train(key):
 
 
 def eval(key):
+    keys = random.split(key, 3)
     # Generate sampled data
+    dim = args.dim
+    ntest = args.ntest
+    alpha = args.alpha / dim
     interval = args.interval.split(',')
     lowb, upb = float(interval[0]), float(interval[1])
     interval = [lowb, upb]
-    x_test = np.linspace(lowb, upb, num=args.ntest)[:, None]
     generate_data = get_data(args.datatype)
-    y_test = generate_data(x_test, alpha=args.alpha)
-    normalizer = normalization(x_test, args.normalization)
+    x_b_set = boundary_points(dim=dim, generate_data=lambda x: generate_data(x, alpha), interval=interval)
+    x_in_set = interior_points(dim=dim, interval=interval)
+    x_test = jnp.concatenate([x_in_set.sample(num=int(ntest * 0.8), key=keys[0]),
+                              x_b_set.sample(num=int(ntest * 0.2), key=keys[1])[0]], 0)
+    y_test = generate_data(x_test, alpha=alpha)
+    normalizer = normalization(interval, dim, args.normalization)
 
     input_dim = dim
     output_dim = 1
@@ -262,7 +238,7 @@ def eval(key):
     path = f'{args.datatype}_{args.network}_{args.seed}_{args.alpha}.eqx'
     model = eqx.tree_deserialise_leaves(path, model)
 
-    y_pred = vmap(net, (None, 0, None))(model, x_test[:, 0], frozen_para)
+    y_pred = vmap(output_test, (None, 0, None))(model, x_test, frozen_para)
     mse_error = jnp.mean((y_pred.flatten() - y_test.flatten()) ** 2)
     relative_error = jnp.linalg.norm(y_pred.flatten() - y_test.flatten()) / jnp.linalg.norm(y_test.flatten())
     print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e}')

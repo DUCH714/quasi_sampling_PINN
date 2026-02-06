@@ -204,14 +204,21 @@ def train(key):
 
 
 def eval(key):
+    keys = random.split(key, 3)
     # Generate sampled data
+    dim = args.dim
+    ntest = args.ntest
+    alpha = args.alpha / dim
     interval = args.interval.split(',')
     lowb, upb = float(interval[0]), float(interval[1])
     interval = [lowb, upb]
-    x_test = np.linspace(lowb, upb, num=args.ntest)[:, None]
     generate_data = get_data(args.datatype)
-    y_test = generate_data(x_test, alpha=args.alpha)
-    normalizer = normalization(x_test, args.normalization)
+    x_b_set = boundary_points(dim=dim, generate_data=lambda x: generate_data(x, alpha), interval=interval)
+    x_in_set = interior_points(dim=dim, interval=interval)
+    x_test = jnp.concatenate([x_in_set.sample(num=int(ntest * 0.8), key=keys[0]),
+                              x_b_set.sample(num=int(ntest * 0.2), key=keys[1])[0]], 0)
+    y_test = generate_data(x_test, alpha=alpha)
+    normalizer = normalization(interval, dim, args.normalization)
 
     input_dim = dim
     output_dim = 1
@@ -222,7 +229,7 @@ def eval(key):
     path = f'{args.datatype}_{args.network}_{args.seed}_{args.alpha}.eqx'
     model = eqx.tree_deserialise_leaves(path, model)
 
-    y_pred = vmap(net, (None, 0, None))(model, x_test[:, 0], frozen_para)
+    y_pred = vmap(output_test, (None, 0, None))(model, x_test, frozen_para)
     mse_error = jnp.mean((y_pred.flatten() - y_test.flatten()) ** 2)
     relative_error = jnp.linalg.norm(y_pred.flatten() - y_test.flatten()) / jnp.linalg.norm(y_test.flatten())
     print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e}')
