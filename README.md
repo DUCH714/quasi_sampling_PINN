@@ -2,6 +2,9 @@
 
 This repository contains the  code for [paper](https://www.sciencedirect.com/science/article/abs/pii/S0925231226003103): Quasi-random physics-informed neural networks
 
+## Overview
+This project extends standard PINNs by integrating quasi-random sampling (e.g., Sobol sequences) to replace random sampling points, reducing sampling bias and accelerating convergence for PDE solving tasks.
+
 ## Enviroment
 
 The recommend enviroment is 
@@ -11,7 +14,7 @@ docker pull ghcr.io/nvidia/jax:equinox
 
 ## Usage
 
-For all equations files, you can use python, e,g:
+Execute the main script to train a PINN with quasi-sampling on a benchmark PDE (e.g., Poisson equation):
 
 Training mode:  
 ```
