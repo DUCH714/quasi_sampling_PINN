@@ -171,7 +171,6 @@ def train(key):
     history = []
     T = []
     errors = []
-    ob_xs=[]
     for j in range(ite * N_epochs):
         if j % N_epochs == 0:
             # sample
@@ -183,7 +182,6 @@ def train(key):
             Y = compute_RAD(model, rad_points, frozen_para)
             err_eq = jnp.power(Y, rad_k) / jnp.power(Y, rad_k).mean() + rad_c
             ob_x = random.choice(keys[1], rad_points, shape=(N_interior,), p=err_eq,replace=False)
-            ob_xs.append(ob_x)
             x_b, y_b = x_b_set.sample(N_b, keys[1])
             ob_sup = jnp.concatenate([x_b, y_b], -1)
 
@@ -207,13 +205,14 @@ def train(key):
     mse_error = jnp.mean((y_pred.flatten() - y_test.flatten()) ** 2)
     relative_error = jnp.linalg.norm(y_pred.flatten() - y_test.flatten()) / jnp.linalg.norm(y_test.flatten())
     errors.append(relative_error)
-    print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e}')
+    errors = np.array(errors)
+    print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e},min:{errors.min():.2e}')
 
     # save model and results
-    path = f'{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.eqx'
+    path = f'results/poisson/rad_{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.eqx'
     eqx.tree_serialise_leaves(path, model)
-    path = f'{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.npz'
-    np.savez(path, loss=history, avg_time=avg_time, y_pred=y_pred, y_test=y_test, x_test=x_test, errors=errors,ob_xs=ob_xs)
+    path = f'results/poisson/rad_{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.npz'
+    np.savez(path, loss=history, avg_time=avg_time, y_pred=y_pred, y_test=y_test, x_test=x_test, errors=errors,ob_x=ob_x)
 
     # print the parameters
     param_count = sum(x.size if eqx.is_array(x) else 0 for x in jax.tree.leaves(model))

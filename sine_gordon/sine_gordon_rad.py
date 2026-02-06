@@ -221,7 +221,8 @@ def train(key):
     mse_error = jnp.mean((y_pred.flatten() - y_test.flatten()) ** 2)
     relative_error = jnp.linalg.norm(y_pred.flatten() - y_test.flatten()) / jnp.linalg.norm(y_test.flatten())
     errors.append(relative_error)
-    print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e}')
+    errors = np.array(errors)
+    print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e},min:{errors.min():.2e}')
 
     # save model and results
     path = f'./results/sine_gordon/{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.eqx'

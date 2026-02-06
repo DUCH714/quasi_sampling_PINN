@@ -201,9 +201,9 @@ def train(key):
     print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e}')
 
     # save model and results
-    path = f'{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.eqx'
+    path = f'results/poisson/{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.eqx'
     eqx.tree_serialise_leaves(path, model)
-    path = f'{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.npz'
+    path = f'results/poisson/{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.npz'
     np.savez(path, loss=history, avg_time=avg_time, y_pred=y_pred, y_test=y_test, x_test=x_test, errors=errors)
 
     # print the parameters

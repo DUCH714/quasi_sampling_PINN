@@ -159,9 +159,10 @@ def train(key):
     interval = [lowb, upb]
     x_b_set = boundary_points(dim=dim, generate_data=generate_data, interval=interval, alpha=alpha, c=vec_c)
     x_in_set = interior_points(dim=dim, interval=interval)
-    x_test = jnp.concatenate([x_in_set.sample(num=int(ntest * 0.8), key=keys[0]),
-                              x_b_set.sample(num=int(ntest * 0.2), key=keys[1])[0]], 0)
+    # x_test = jnp.concatenate([x_in_set.sample(num=int(ntest * 0.8), key=keys[0]),
+    #                           x_b_set.sample(num=int(ntest * 0.2), key=keys[1])[0]], 0)
 
+    x_test = x_in_set.sample(num=ntest, key=keys[0])
     y_test = generate_data(x_test, alpha=alpha, c=vec_c)
     normalizer = normalization(interval, dim, args.normalization)
     input_dim = dim
@@ -213,7 +214,8 @@ def train(key):
     mse_error = jnp.mean((y_pred.flatten() - y_test.flatten()) ** 2)
     relative_error = jnp.linalg.norm(y_pred.flatten() - y_test.flatten()) / jnp.linalg.norm(y_test.flatten())
     errors.append(relative_error)
-    print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e}')
+    errors = np.array(errors)
+    print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e},min:{errors.min():.2e}')
 
     # save model and results
     path = f'./results/sine_gordon/{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.eqx'

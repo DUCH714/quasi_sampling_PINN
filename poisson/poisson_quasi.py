@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import argparse
 import jax
 from data import get_data
+from scipy.stats import qmc
 from networks import get_network
 from sampling import get_sampler
 from utils import normalization
@@ -144,13 +145,15 @@ def train(key):
     ite = args.ite
     learning_rate = args.lr
     generate_data = get_data(args.datatype)
-    sampler = get_sampler(args.sampling_mode)
+    sampler =get_sampler(args.sampling_mode,dim)
     # Generate sampled data
     lowb, upb = float(interval[0]), float(interval[1])
     interval = [lowb, upb]
     x_b_set = boundary_points(dim=dim, generate_data=generate_data, interval=interval, alpha=alpha)
     x_in_set = interior_points(dim=dim, interval=interval)
-    x_train_set = jnp.array(sampler.generate([(interval[0], interval[1])] * dim, args.n_train))
+    samples = sampler.random(args.n_train)
+    x_train_set = jnp.array(qmc.scale(samples, interval[0], interval[1]))
+
     x_test = jnp.concatenate([x_in_set.sample(num=int(ntest * 0.8), key=keys[0]),
                               x_b_set.sample(num=int(ntest * 0.2), key=keys[1])[0]], 0)
 
@@ -207,10 +210,10 @@ def train(key):
     print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e}')
 
     # save model and results
-    path = f'{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.eqx'
+    path = f'results/poisson/quasi_{args.sampling_mode}_{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.eqx'
     eqx.tree_serialise_leaves(path, model)
-    path = f'{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.npz'
-    np.savez(path, loss=history, avg_time=avg_time, y_pred=y_pred, y_test=y_test, x_test=x_test, errors=errors)
+    path = f'results/poisson/quasi_{args.sampling_mode}_{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.npz'
+    np.savez(path, loss=history, avg_time=avg_time, y_pred=y_pred, y_test=y_test, x_test=x_test, errors=errors,ob_x=ob_x)
 
     # print the parameters
     param_count = sum(x.size if eqx.is_array(x) else 0 for x in jax.tree.leaves(model))

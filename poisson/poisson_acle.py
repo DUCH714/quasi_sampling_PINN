@@ -231,10 +231,10 @@ def train(key):
     print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e}')
 
     # save model and results
-    path = f'{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.eqx'
+    path = f'results/poisson/acle_{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.eqx'
     eqx.tree_serialise_leaves(path, model)
-    path = f'{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.npz'
-    np.savez(path, loss=history, avg_time=avg_time, y_pred=y_pred, y_test=y_test, x_test=x_test, errors=errors)
+    path = f'results/poisson/acle_{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.npz'
+    np.savez(path, loss=history, avg_time=avg_time, y_pred=y_pred, y_test=y_test, x_test=x_test, errors=errors,ob_x=ob_x)
 
     # print the parameters
     param_count = sum(x.size if eqx.is_array(x) else 0 for x in jax.tree.leaves(model))
