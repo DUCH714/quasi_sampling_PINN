@@ -1,14 +1,3 @@
-"""
-Allen-Cahn Equation Solver using Physics-Informed Neural Networks (PINNs) with uniform sampling.
-
-This module implements a PINN-based solution for the Allen-Cahn equation:
-    f = u - u^3 + ∇² u
-
-Usage:
-    Training mode:  python allen_cahn.py --mode train --network mlp --dim 100
-    Evaluation mode: python allen_cahn.py --mode eval --network mlp --dim 100
-"""
-
 import sys
 
 sys.path.append('../')
@@ -26,14 +15,20 @@ import matplotlib.pyplot as plt
 import argparse
 import jax
 from data import get_data
+from scipy.stats import qmc
 from networks import get_network
 from utils import normalization
+from sampling import get_sampler
 
 parser = argparse.ArgumentParser(description="quasi_random")
 parser.add_argument("--mode", type=str, default='train', help="mode of the network, "
                                                               "train: start training, eval: evaluation")
 parser.add_argument("--datatype", type=str, default='allen_cahn', help="type of data")
 parser.add_argument("--ntest", type=int, default=10000, help="the number of testing dataset")
+parser.add_argument("--n_i", type=int, default=20000,
+                    help="the total number of interior training dataset for each epochs")
+parser.add_argument("--n_b", type=int, default=20000,
+                    help="the total number of interior training dataset for each epochs")
 parser.add_argument("--n_interior", type=int, default=2000,
                     help="the number of interior training dataset for each epochs")
 parser.add_argument("--n_boundary", type=int, default=1000,
@@ -57,12 +52,13 @@ parser.add_argument("--len_h", type=int, default=1, help='lenth of k for sinckan
 parser.add_argument("--init_h", type=float, default=2.0, help='initial value of h')
 parser.add_argument("--decay", type=str, default='inverse', help='decay type for h')
 parser.add_argument("--skip", type=int, default=1, help='1: use skip connection for sinckan')
+parser.add_argument("--sampling_mode", type=str, default='halton', help='decay type for h')
 parser.add_argument("--embed_feature", type=int, default=10, help='embedding features of the modified MLP')
 parser.add_argument("--initialization", type=str, default=None, help='the type of initialization of SincKAN')
 parser.add_argument("--device", type=int, default=2, help="cuda number")
 args = parser.parse_args()
 os.environ['CUDA_VISIBLE_DEVICES'] = str(args.device)
-
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'true'
 
 def solution_jax(x, c):
     A = jnp.sum(c * jnp.sin(x[:-1] + jnp.cos(x[1:]) + x[1:] * jnp.sin(x[:-1])))
@@ -102,6 +98,16 @@ class boundary_points():
         keys = random.split(keys[-1], 2)
         boundary = jax.random.randint(keys[0], (num,), 0, 2) * (self.interval[1] - self.interval[0]) + self.interval[0]
         idx_bd = jax.random.randint(keys[1], (num,), 0, self.dim)
+        vset = lambda p, idx, value: p.at[idx].set(value)
+        x = vmap(vset, (0, 0, 0))(x, idx_bd, boundary)
+        y = self.generate_data(x, self.c)
+        return x, y
+
+    def sample_qmc(self, x, num, key):
+        keys = random.split(key, 3)
+        x = random.choice(keys[0], x, shape=(num,), replace=False)
+        boundary = jax.random.randint(keys[1], (num,), 0, 2) * (self.interval[1] - self.interval[0]) + self.interval[0]
+        idx_bd = jax.random.randint(keys[2], (num,), 0, self.dim)
         vset = lambda p, idx, value: p.at[idx].set(value)
         x = vmap(vset, (0, 0, 0))(x, idx_bd, boundary)
         y = self.generate_data(x, self.c)
@@ -160,11 +166,16 @@ def train(key):
     ite = args.ite
     learning_rate = args.lr
     generate_data = get_data(args.datatype)
+    sampler = get_sampler(args.sampling_mode, dim)
     # Generate sampled data
     lowb, upb = float(interval[0]), float(interval[1])
     interval = [lowb, upb]
     x_b_set = boundary_points(dim=dim, generate_data=generate_data, interval=interval, c=vec_c)
     x_in_set = interior_points(dim=dim, interval=interval)
+    samples_i = sampler.random(args.n_i)
+    samples_b = sampler.random(args.n_b)
+    x_train_set = jnp.array(qmc.scale(samples_i, interval[0], interval[1]))
+    x_b_train_set = jnp.array(qmc.scale(samples_b, interval[0], interval[1]))
     x_test = jnp.concatenate([x_in_set.sample(num=int(ntest * 0.8), key=keys[0]),
                               x_b_set.sample(num=int(ntest * 0.2), key=keys[1])[0]], 0)
 
@@ -191,12 +202,12 @@ def train(key):
         if j % N_epochs == 0:
             # sample
             keys = random.split(keys[-1], 3)
-            input_points = x_in_set.sample(N_interior, keys[0])
+            input_points = x_in_set.sample(N_interior, keys[0]) # random.choice(keys[0], x_train_set, shape=(N_interior,), replace=False)
             ob_x = jnp.concatenate([input_points,
                                     vmap(right_hand_side, (0, None, None))(input_points, vec_c, dim,
                                                                                  ).reshape(-1, 1)],
                                    -1)
-            x_b, y_b = x_b_set.sample(N_b, keys[1])
+            x_b, y_b = x_b_set.sample_qmc(x_b_train_set, N_b, keys[1])
             ob_sup = jnp.concatenate([x_b, y_b], -1)
 
         T1 = time.time()
@@ -221,13 +232,13 @@ def train(key):
     mse_error = jnp.mean((y_pred.flatten() - y_test.flatten()) ** 2)
     relative_error = jnp.linalg.norm(y_pred.flatten() - y_test.flatten()) / jnp.linalg.norm(y_test.flatten())
     errors.append(relative_error)
-    errors=np.array(errors)
+    errors = np.array(errors)
     print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e},min:{errors.min():.2e}')
 
     # save model and results
-    path = f'./results/allen_cahn/{args.datatype}_{args.network}_{args.seed}_{args.dim}.eqx'
+    path = f'./results/allen_cahn/quasi_{args.sampling_mode}_{args.datatype}_{args.network}_{args.seed}_{args.dim}.eqx'
     eqx.tree_serialise_leaves(path, model)
-    path = f'./results/allen_cahn/{args.datatype}_{args.network}_{args.seed}_{args.dim}.npz'
+    path = f'./results/allen_cahn/quasi_{args.sampling_mode}_{args.datatype}_{args.network}_{args.seed}_{args.dim}.npz'
     np.savez(path, loss=history, avg_time=avg_time, y_pred=y_pred, y_test=y_test, x_test=x_test, errors=errors)
 
     # print the parameters

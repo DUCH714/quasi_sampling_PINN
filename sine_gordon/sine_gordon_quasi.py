@@ -1,3 +1,14 @@
+"""
+Sine-Gordon Equation Solver using Physics-Informed Neural Networks (PINNs) with uniform sampling on low-discrepancy sequence.
+
+This module implements a PINN-based solution for the Sine-Gordon equation:
+    f = sin(u)+ ∇² u
+
+Usage:
+    Training mode:  python sine_gordon.py --mode train --network mlp --dim 100
+    Evaluation mode: python sine_gordon.py --mode eval --network mlp --dim 100
+"""
+
 import sys
 
 sys.path.append('../')
@@ -20,7 +31,7 @@ from networks import get_network
 from sampling import get_sampler
 from utils import normalization
 
-parser = argparse.ArgumentParser(description="SincKAN")
+parser = argparse.ArgumentParser(description="quasi_random")
 parser.add_argument("--mode", type=str, default='train', help="mode of the network, "
                                                               "train: start training, eval: evaluation")
 parser.add_argument("--datatype", type=str, default='sine_gordon', help="type of data")
@@ -208,16 +219,18 @@ def train(key):
         T.append(T2 - T1)
         history.append(loss.item())
         if j % N_epochs == 0:
-            # test
+            # validation
             y_pred = vmap(output_test, (None, 0, None))(model, x_test, frozen_para)
             mse_error = jnp.mean((y_pred.flatten() - y_test.flatten()) ** 2)
             relative_error = jnp.linalg.norm(y_pred.flatten() - y_test.flatten()) / jnp.linalg.norm(y_test.flatten())
             errors.append(relative_error)
             print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e}')
 
+    # print the average time per iteration
     avg_time = np.mean(np.array(T))
     print(f'time: {1 / avg_time:.2e}ite/s')
 
+    # final evaluation
     y_pred = vmap(output_test, (None, 0, None))(model, x_test, frozen_para)
     mse_error = jnp.mean((y_pred.flatten() - y_test.flatten()) ** 2)
     relative_error = jnp.linalg.norm(y_pred.flatten() - y_test.flatten()) / jnp.linalg.norm(y_test.flatten())
@@ -275,6 +288,7 @@ def eval(key):
     relative_error = jnp.linalg.norm(y_pred.flatten() - y_test.flatten()) / jnp.linalg.norm(y_test.flatten())
     print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e}')
 
+    # visualization
     plt.figure(figsize=(10, 5))
     plt.plot(x_test, y_test, 'r', label='exact solution')
     plt.plot(x_test, y_pred, 'b-', label='SincKAN')

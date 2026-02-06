@@ -1,14 +1,3 @@
-"""
-Allen-Cahn Equation Solver using Physics-Informed Neural Networks (PINNs) with uniform sampling.
-
-This module implements a PINN-based solution for the Allen-Cahn equation:
-    f = u - u^3 + ∇² u
-
-Usage:
-    Training mode:  python allen_cahn.py --mode train --network mlp --dim 100
-    Evaluation mode: python allen_cahn.py --mode eval --network mlp --dim 100
-"""
-
 import sys
 
 sys.path.append('../')
@@ -25,15 +14,19 @@ import scipy
 import matplotlib.pyplot as plt
 import argparse
 import jax
+from scipy.stats import qmc
 from data import get_data
 from networks import get_network
+from sampling import get_sampler
 from utils import normalization
 
 parser = argparse.ArgumentParser(description="quasi_random")
 parser.add_argument("--mode", type=str, default='train', help="mode of the network, "
                                                               "train: start training, eval: evaluation")
-parser.add_argument("--datatype", type=str, default='allen_cahn', help="type of data")
+parser.add_argument("--datatype", type=str, default='sine_gordon', help="type of data")
 parser.add_argument("--ntest", type=int, default=10000, help="the number of testing dataset")
+parser.add_argument("--n_train", type=int, default=20000,
+                    help="the total number of interior training dataset for each epochs")
 parser.add_argument("--n_interior", type=int, default=2000,
                     help="the number of interior training dataset for each epochs")
 parser.add_argument("--n_boundary", type=int, default=1000,
@@ -56,27 +49,29 @@ parser.add_argument("--layers", type=int, default=4, help='depth of the network'
 parser.add_argument("--len_h", type=int, default=1, help='lenth of k for sinckan')
 parser.add_argument("--init_h", type=float, default=2.0, help='initial value of h')
 parser.add_argument("--decay", type=str, default='inverse', help='decay type for h')
+parser.add_argument("--sampling_mode", type=str, default='halton', help='decay type for h')
 parser.add_argument("--skip", type=int, default=1, help='1: use skip connection for sinckan')
 parser.add_argument("--embed_feature", type=int, default=10, help='embedding features of the modified MLP')
+parser.add_argument("--alpha", type=float, default=10, help='parameters for the width of poission')
 parser.add_argument("--initialization", type=str, default=None, help='the type of initialization of SincKAN')
 parser.add_argument("--device", type=int, default=2, help="cuda number")
 args = parser.parse_args()
+
 os.environ['CUDA_VISIBLE_DEVICES'] = str(args.device)
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'true'
 
-
-def solution_jax(x, c):
-    A = jnp.sum(c * jnp.sin(x[:-1] + jnp.cos(x[1:]) + x[1:] * jnp.sin(x[:-1])))
+def solution_jax(x, alpha, c):
+    A = jnp.mean(jnp.exp(-c * x[:-2] * x[1:-1] * x[2:]))
     B = 1 - jnp.mean(x ** 2)
     return A*B
 
 
-def right_hand_side(x, c, dim):
-    u = lambda model, c, *x: model(jnp.stack([*x]), c)
+def right_hand_side(x, alpha, c, dim):
+    u = lambda model, alpha, c, *x: model(jnp.stack([*x]), alpha, c)
     f = jnp.sum(
-        jnp.stack([grad(grad(u, argnums=i + 2), argnums=i + 2)(solution_jax, c, *x) for i in range(dim)])) \
-        + u(solution_jax, c, *x) - u(solution_jax, c, *x) ** 3
+        jnp.stack([grad(grad(u, argnums=i + 3), argnums=i + 3)(solution_jax, alpha, c, *x) for i in range(dim)])) \
+        + jnp.sin(u(solution_jax, alpha, c, *x))
     return f
-
 
 class interior_points():
     def __init__(self, dim, interval=(-1, 1)):
@@ -87,13 +82,13 @@ class interior_points():
         points = random.uniform(key,shape=(num,self.dim),minval=self.interval[0],maxval=self.interval[1])
         return points
 
-
 class boundary_points():
-    def __init__(self, dim, generate_data, interval=(-1, 1), c=0):
+    def __init__(self, dim, generate_data, interval=(-1, 1), alpha=100, c=0):
         self.dim = dim
         self.points = jnp.linspace(interval[0], interval[1], 100)
         self.interval = interval
         self.generate_data = generate_data
+        self.alpha = alpha
         self.c = c
 
     def sample(self, num, key):
@@ -104,7 +99,7 @@ class boundary_points():
         idx_bd = jax.random.randint(keys[1], (num,), 0, self.dim)
         vset = lambda p, idx, value: p.at[idx].set(value)
         x = vmap(vset, (0, 0, 0))(x, idx_bd, boundary)
-        y = self.generate_data(x, self.c)
+        y = self.generate_data(x, self.alpha, self.c)
         return x, y
 
 
@@ -116,7 +111,7 @@ def residual(model, x, frozen_para, r_s):
     dim = x.shape[0]
     u_output = net(model, frozen_para, *x)
     f = jnp.sum(jnp.stack([grad(grad(net, argnums=i + 2), argnums=i + 2)(model, frozen_para, *x) for i in range(dim)])) \
-        + u_output - u_output ** 3
+        + jnp.sin(u_output)
     return f - r_s
 
 
@@ -152,7 +147,9 @@ def train(key):
     # Get hyterparameters
     interval = args.interval.split(',')
     dim = args.dim
-    vec_c = np.abs(np.random.normal(0, 1, (dim - 1,))/dim)
+    alpha = args.alpha / dim
+    vec_c = abs(np.random.normal(0, 1, (dim - 2,)))
+    vec_c = vec_c
     ntest = args.ntest
     N_interior = args.n_interior
     N_b = args.n_boundary * dim
@@ -160,15 +157,19 @@ def train(key):
     ite = args.ite
     learning_rate = args.lr
     generate_data = get_data(args.datatype)
+    sampler =get_sampler(args.sampling_mode,dim)
     # Generate sampled data
     lowb, upb = float(interval[0]), float(interval[1])
     interval = [lowb, upb]
-    x_b_set = boundary_points(dim=dim, generate_data=generate_data, interval=interval, c=vec_c)
+    x_b_set = boundary_points(dim=dim, generate_data=generate_data, interval=interval, alpha=alpha, c=vec_c)
     x_in_set = interior_points(dim=dim, interval=interval)
+    samples = sampler.random(args.n_train)
+    x_train_set = jnp.array(qmc.scale(samples, interval[0], interval[1]))
+
     x_test = jnp.concatenate([x_in_set.sample(num=int(ntest * 0.8), key=keys[0]),
                               x_b_set.sample(num=int(ntest * 0.2), key=keys[1])[0]], 0)
 
-    y_test = generate_data(x_test, c=vec_c)
+    y_test = generate_data(x_test, alpha=alpha, c=vec_c)
     normalizer = normalization(interval, dim, args.normalization)
     input_dim = dim
     output_dim = 1
@@ -187,13 +188,14 @@ def train(key):
     history = []
     T = []
     errors = []
+
     for j in range(ite * N_epochs):
         if j % N_epochs == 0:
             # sample
             keys = random.split(keys[-1], 3)
-            input_points = x_in_set.sample(N_interior, keys[0])
+            input_points = random.choice(keys[0], x_train_set, shape=(N_interior,), replace=False)
             ob_x = jnp.concatenate([input_points,
-                                    vmap(right_hand_side, (0, None, None))(input_points, vec_c, dim,
+                                    vmap(right_hand_side, (0, None, None, None))(input_points, alpha, vec_c, dim,
                                                                                  ).reshape(-1, 1)],
                                    -1)
             x_b, y_b = x_b_set.sample(N_b, keys[1])
@@ -221,13 +223,13 @@ def train(key):
     mse_error = jnp.mean((y_pred.flatten() - y_test.flatten()) ** 2)
     relative_error = jnp.linalg.norm(y_pred.flatten() - y_test.flatten()) / jnp.linalg.norm(y_test.flatten())
     errors.append(relative_error)
-    errors=np.array(errors)
+    errors = np.array(errors)
     print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e},min:{errors.min():.2e}')
 
     # save model and results
-    path = f'./results/allen_cahn/{args.datatype}_{args.network}_{args.seed}_{args.dim}.eqx'
+    path = f'./results/sine_gordon/quasi_{args.sampling_mode}_{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.eqx'
     eqx.tree_serialise_leaves(path, model)
-    path = f'./results/allen_cahn/{args.datatype}_{args.network}_{args.seed}_{args.dim}.npz'
+    path = f'./results/sine_gordon/quasi_{args.sampling_mode}_{args.datatype}_{args.network}_{args.seed}_{args.alpha}_{args.dim}.npz'
     np.savez(path, loss=history, avg_time=avg_time, y_pred=y_pred, y_test=y_test, x_test=x_test, errors=errors)
 
     # print the parameters
@@ -235,13 +237,13 @@ def train(key):
     print(f'total parameters: {param_count}')
 
     # write the reuslts on csv file
-    header = "datatype, network, seed, dim, final_loss_mean, training_time, total_ite,total_param, fine_mse, fine_relative"
+    header = "datatype, network, seed, alpha, dim, final_loss_mean, training_time, total_ite,total_param, fine_mse, fine_relative"
     save_here = "results.csv"
     if not os.path.isfile(save_here):
         with open(save_here, "w") as f:
             f.write(header)
 
-    res = f"\n{args.datatype},{args.network},{args.seed},{args.dim},{history[-1]},{np.sum(np.array(T))},{param_count},{ite * N_epochs},{mse_error},{relative_error}"
+    res = f"\n{args.datatype},{args.network},{args.seed},{args.alpha},{args.dim},{history[-1]},{np.sum(np.array(T))},{param_count},{ite * N_epochs},{mse_error},{relative_error}"
     with open(save_here, "a") as f:
         f.write(res)
 
@@ -252,12 +254,12 @@ def eval(key):
     interval = args.interval.split(',')
     lowb, upb = float(interval[0]), float(interval[1])
     interval = [lowb, upb]
-    x_b_set = boundary_points(dim=dim, generate_data=generate_data, interval=interval, c=vec_c)
+    x_b_set = boundary_points(dim=dim, generate_data=generate_data, interval=interval, alpha=alpha, c=vec_c)
     x_in_set = interior_points(dim=dim, interval=interval)
     x_test = jnp.concatenate([x_in_set.sample(num=int(ntest * 0.8), key=keys[0]),
                               x_b_set.sample(num=int(ntest * 0.2), key=keys[1])[0]], 0)
 
-    y_test = generate_data(x_test, c=vec_c)
+    y_test = generate_data(x_test, alpha=alpha, c=vec_c)
     normalizer = normalization(x_test, args.normalization)
 
     input_dim = dim
@@ -266,7 +268,7 @@ def eval(key):
     # Choose the model
     model = get_network(args, input_dim, output_dim, interval, normalizer, keys)
     frozen_para = model.get_frozen_para()
-    path = f'{args.datatype}_{args.network}_{args.seed}.eqx'
+    path = f'{args.datatype}_{args.network}_{args.seed}_{args.alpha}.eqx'
     model = eqx.tree_deserialise_leaves(path, model)
 
     y_pred = vmap(net, (None, 0, None))(model, x_test[:, 0], frozen_para)
