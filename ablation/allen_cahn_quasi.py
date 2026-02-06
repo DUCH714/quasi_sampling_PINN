@@ -1,3 +1,14 @@
+"""
+Allen-Cahn Equation Solver using Physics-Informed Neural Networks (PINNs) with uniform sampling on low-discrepancy sequence for residual points.
+
+This module implements a PINN-based solution for the Allen-Cahn equation:
+    f = u - u^3 + ∇² u
+
+Usage:
+    Training mode:  python allen_cahn_quasi.py --mode train --network mlp --dim 100
+    Evaluation mode: python allen_cahn_quasi.py --mode eval --network mlp --dim 100
+"""
+
 import sys
 
 sys.path.append('../')

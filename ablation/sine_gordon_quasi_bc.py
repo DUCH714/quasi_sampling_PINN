@@ -1,3 +1,14 @@
+"""
+Sine-Gordon Equation Solver using Physics-Informed Neural Networks (PINNs) with uniform sampling on low-discrepancy sequence for boundary points.
+
+This module implements a PINN-based solution for the Sine-Gordon equation:
+    f = sin(u)+ ∇² u
+
+Usage:
+    Training mode:  python sine_gordon_bc.py --mode train --network mlp --dim 100
+    Evaluation mode: python sine_gordon_bc.py --mode eval --network mlp --dim 100
+"""
+
 import sys
 
 sys.path.append('../')

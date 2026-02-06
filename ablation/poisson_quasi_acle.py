@@ -1,3 +1,14 @@
+"""
+Poisson Equation Solver using Physics-Informed Neural Networks (PINNs) with ACLE sampling on low-discrepancy sequence.
+
+This module implements a PINN-based solution for the Poisson equation:
+    ∇²u = f
+
+Usage:
+    Training mode:  python poisson_quasi_acle.py --mode train --network mlp --dim 100
+    Evaluation mode: python poisson_quasi_acle.py --mode eval --network mlp --dim 100
+"""
+
 import sys
 
 sys.path.append('../')
