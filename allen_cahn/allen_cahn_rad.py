@@ -144,7 +144,7 @@ def train(key):
     # Get hyterparameters
     interval = args.interval.split(',')
     dim = args.dim
-    vec_c = np.random.normal(0, 1, (dim - 1,))
+    vec_c = np.abs(np.random.normal(0, 1, (dim - 1,))/dim)
     ntest = args.ntest
     N_interior = args.n_interior
     N_b = args.n_boundary * dim
@@ -215,7 +215,8 @@ def train(key):
     mse_error = jnp.mean((y_pred.flatten() - y_test.flatten()) ** 2)
     relative_error = jnp.linalg.norm(y_pred.flatten() - y_test.flatten()) / jnp.linalg.norm(y_test.flatten())
     errors.append(relative_error)
-    print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e}')
+    errors=np.array(errors)
+    print(f'testing mse: {mse_error:.2e},relative: {relative_error:.2e},min:{errors.min():.2e}')
 
     # save model and results
     path = f'./results/allen_cahn/{args.datatype}_{args.network}_{args.seed}_{args.dim}.eqx'
