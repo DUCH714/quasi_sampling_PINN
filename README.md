@@ -1,6 +1,6 @@
 # Quasi-random physics-informed neural networks
 
-This repository contains the  code for [paper](https://www.sciencedirect.com/science/article/abs/pii/S0925231226003103): Quasi-random physics-informed neural networks
+This repository contains the  code for [Quasi-random physics-informed neural networks](https://www.sciencedirect.com/science/article/abs/pii/S0925231226003103).
 
 ## Overview
 This project extends standard PINNs by integrating quasi-random sampling (e.g., Sobol sequences) to replace random sampling points, reducing sampling bias and accelerating convergence for PDE solving tasks.
