@@ -1,6 +1,7 @@
 import numpy as np
 import jax.numpy as jnp
 import jax
+from jax import random, vmap
 
 def normalization(interval, dim, is_normalization,is_t=0):
     '''
@@ -30,6 +31,9 @@ def normalization(interval, dim, is_normalization,is_t=0):
     return x_fun
 
 class interior_points():
+    '''
+    Class to generate interior points within a specified interval for a given dimension.
+    '''
     def __init__(self, dim, interval=(-1, 1)):
         self.dim = dim
         self.interval = interval
@@ -39,6 +43,9 @@ class interior_points():
         return points
 
 class boundary_points():
+    '''
+    Class to generate boundary points for a given dimension and interval.
+    '''
     def __init__(self, dim, generate_data, interval=(-1, 1)):
         self.dim = dim
         self.points = jnp.linspace(interval[0], interval[1], 100)

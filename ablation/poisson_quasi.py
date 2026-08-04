@@ -51,6 +51,9 @@ parser.add_argument("--normalization", type=int, default=0, help="add normalizat
                                                                  "1: add normalization")
 parser.add_argument("--interval", type=str, default="-1.0,1.0", help='boundary of the interval')
 parser.add_argument("--network", type=str, default="mlp", help="type of network")
+parser.add_argument("--activation", type=str, default='tanh', help='the activation function')
+parser.add_argument("--features", type=int, default=50, help='width of the network')
+parser.add_argument("--layers", type=int, default=4, help='depth of the network')
 parser.add_argument("--sampling_mode", type=str, default='halton', help='decay type for h')
 parser.add_argument("--alpha", type=float, default=10, help='parameters for the width of poission')
 parser.add_argument("--device", type=int, default=2, help="cuda number")
@@ -113,7 +116,7 @@ def train(key):
     ite = args.ite
     learning_rate = args.lr
     generate_data = get_data(args.datatype)
-    sampler =get_sampler(args.sampling_mode,dim)
+    sampler =get_sampler(args.sampling_mode)
     # Generate sampled data
     lowb, upb = float(interval[0]), float(interval[1])
     interval = [lowb, upb]
@@ -188,18 +191,6 @@ def train(key):
     # print the parameters
     param_count = sum(x.size if eqx.is_array(x) else 0 for x in jax.tree.leaves(model))
     print(f'total parameters: {param_count}')
-
-    # write the reuslts on csv file
-    header = "datatype, network, seed, alpha, dim, final_loss_mean, training_time, total_ite,total_param, fine_mse, fine_relative"
-    save_here = "results.csv"
-    if not os.path.isfile(save_here):
-        with open(save_here, "w") as f:
-            f.write(header)
-
-    res = f"\n{args.datatype},{args.network},{args.seed},{args.alpha},{args.dim},{history[-1]},{np.sum(np.array(T))},{param_count},{ite * N_epochs},{mse_error},{relative_error}"
-    with open(save_here, "a") as f:
-        f.write(res)
-
 
 def eval(key):
     keys = random.split(key, 3)
